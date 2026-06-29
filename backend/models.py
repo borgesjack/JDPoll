@@ -5,7 +5,8 @@ db = SQLAlchemy()
 class Team(db.Model):
     __tablename__ = 'teams'
     
-    name = db.Column(db.String(100), primary_key=True)
+    code = db.Column(db.String(10), primary_key=True) # e.g. 'UGA', 'OSU', 'UCONN'
+    name = db.Column(db.String(100), nullable=False, unique=True) # e.g. 'Georgia'
     record = db.Column(db.String(20), nullable=False, default='0-0')
     conference = db.Column(db.String(50), nullable=False)
     color = db.Column(db.String(20), nullable=False, default='#999999')
@@ -15,6 +16,7 @@ class Team(db.Model):
 
     def to_dict(self):
         return {
+            'code': self.code,
             'name': self.name,
             'record': self.record,
             'conference': self.conference,
@@ -25,7 +27,7 @@ class Ranking(db.Model):
     __tablename__ = 'rankings'
     
     id = db.Column(db.Integer, primary_key=True)
-    team_name = db.Column(db.String(100), db.ForeignKey('teams.name'), nullable=False)
+    team_code = db.Column(db.String(10), db.ForeignKey('teams.code'), nullable=False)
     rank = db.Column(db.Integer, nullable=False)
     poll_type = db.Column(db.String(20), nullable=False)  # 'consensus', 'jack', 'devan'
     previous_rank = db.Column(db.String(20), nullable=False, default='-')
@@ -60,3 +62,38 @@ class Voter(db.Model):
             'description': self.description,
             'avatar_initials': self.avatar_initials
         }
+
+class RawRanking(db.Model):
+    __tablename__ = 'raw_rankings'
+    
+    team = db.Column(db.String(5), primary_key=True)
+    ranking = db.Column(db.SmallInteger, nullable=False)
+    week = db.Column(db.SmallInteger, primary_key=True)
+    season = db.Column(db.SmallInteger, primary_key=True)
+    voter = db.Column(db.String(10), primary_key=True)
+
+    def to_dict(self):
+        return {
+            'team': self.team,
+            'ranking': self.ranking,
+            'week': self.week,
+            'season': self.season,
+            'voter': self.voter
+        }
+
+class ConsensusRanking(db.Model):
+    __tablename__ = 'consensus_rankings'
+    
+    team = db.Column(db.String(5), primary_key=True)
+    rank = db.Column(db.SmallInteger, nullable=False)
+    week = db.Column(db.SmallInteger, primary_key=True)
+    year = db.Column(db.SmallInteger, primary_key=True)
+
+    def to_dict(self):
+        return {
+            'team': self.team,
+            'rank': self.rank,
+            'week': self.week,
+            'year': self.year
+        }
+

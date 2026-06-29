@@ -68,6 +68,14 @@ export function getTeamStyle(query: string): CSSProperties {
 }
 
 /**
+ * Get the conference name for a team.
+ */
+export function getTeamConference(query: string): string {
+  const team = getTeam(query);
+  return team ? team.conference : 'Other';
+}
+
+/**
  * Get the custom CSS class name for a team's theme.
  */
 export function getTeamThemeClass(query: string): string {
@@ -75,3 +83,4 @@ export function getTeamThemeClass(query: string): string {
   return team ? `team-theme-${team.id}` : '';
 }
 export type { Team };
+

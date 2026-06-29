@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { TeamLogo } from './components/TeamLogo'
 import { getTeamStyle } from './utils/teamUtils'
+import { VotePage } from './components/VotePage'
 
 interface TeamRanking {
   rank: number;
@@ -48,6 +49,17 @@ function App() {
   const [activeTab, setActiveTab] = useState<'consensus' | 'jack' | 'devan'>('consensus');
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentView, setCurrentView] = useState<'home' | 'vote'>(() => {
+    return window.location.hash === '#vote' ? 'vote' : 'home';
+  });
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setCurrentView(window.location.hash === '#vote' ? 'vote' : 'home');
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   useEffect(() => {
     fetch('/api/poll-data')
@@ -128,14 +140,34 @@ function App() {
             </span>
           </div>
           <nav className="flex items-center space-x-6 text-sm font-semibold tracking-wide text-dark-900/80">
-            <a href="#rankings" className="hover:text-maroon-500 transition-colors">Rankings</a>
-            <a href="#voters" className="hover:text-maroon-500 transition-colors">The Voters</a>
+            <a 
+              href="#" 
+              className={`hover:text-maroon-500 transition-colors ${currentView === 'home' ? 'text-maroon-600 font-extrabold' : ''}`}
+            >
+              Home
+            </a>
+            {currentView === 'home' && (
+              <>
+                <a href="#rankings" className="hover:text-maroon-500 transition-colors">Rankings</a>
+                <a href="#voters" className="hover:text-maroon-500 transition-colors">The Voters</a>
+              </>
+            )}
+            <a 
+              href="#vote" 
+              className={`hover:text-maroon-500 transition-colors ${currentView === 'vote' ? 'text-maroon-600 font-extrabold' : ''}`}
+            >
+              Submit Ballot
+            </a>
           </nav>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="max-w-4xl mx-auto px-4 pt-16 pb-12 text-center">
+      {currentView === 'vote' ? (
+        <VotePage />
+      ) : (
+        <>
+          {/* Hero Section */}
+          <section className="max-w-4xl mx-auto px-4 pt-16 pb-12 text-center">
         <h1 className="font-display font-black text-5xl sm:text-7xl text-maroon-600 tracking-tight leading-none mb-6">
           JD <span className="font-display font-black text-5xl sm:text-7xl text-gold-400 tracking-tight leading-none mb-6">Poll</span>
         </h1>
@@ -340,6 +372,8 @@ function App() {
           ))}
         </div>
       </section>
+      </>
+      )}
     </div>
   );
 }

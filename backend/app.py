@@ -96,9 +96,9 @@ def get_poll_data():
             # No database configured, return mock data
             return jsonify(get_mock_data())
             
-        # Try to query rankings and join them with teams on team_name
+        # Try to query rankings and join them with teams on team_code
         # Order by rank
-        rankings_query = db.session.query(Ranking, Team).join(Team, Ranking.team_name == Team.name).order_by(Ranking.poll_type, Ranking.rank).all()
+        rankings_query = db.session.query(Ranking, Team).join(Team, Ranking.team_code == Team.code).order_by(Ranking.poll_type, Ranking.rank).all()
         
         if not rankings_query:
             # Tables exist but are empty, return fallback mock
@@ -148,5 +148,68 @@ def get_poll_data():
         logger.warning(f"Database query failed, returning fallback mock data. Error: {e}")
         return jsonify(get_mock_data())
 
+@app.route('/api/submit-ballot', methods=['POST'])
+def submit_ballot():
+    from flask import request
+    data = request.json or {}
+    
+    voter = data.get('voter')
+    week = data.get('week')
+    year = data.get('year')
+    rankings = data.get('rankings', [])
+    
+    if not voter or week is None or year is None:
+        return jsonify({'error': 'Missing voter, week, or year'}), 400
+        
+    if not rankings or len(rankings) != 25:
+        return jsonify({'error': 'A ballot must contain exactly 25 teams'}), 400
+        
+    try:
+        week_num = int(week)
+        year_num = int(year)
+        
+        # Check if database connection config exists
+        if not app.config.get('SQLALCHEMY_DATABASE_URI') or "username:password" in app.config.get('SQLALCHEMY_DATABASE_URI', ''):
+            # No database configured, return mock/simulated response
+            return jsonify({
+                'status': 'simulated',
+                'message': f'Ballot received for {voter} (Week {week_num}, Year {year_num}). Local simulation mode: Database not configured.'
+            })
+            
+        from models import RawRanking
+        
+        # Delete existing rankings for this voter, week, and season (year)
+        db.session.query(RawRanking).filter(
+            RawRanking.voter == voter,
+            RawRanking.week == week_num,
+            RawRanking.season == year_num
+        ).delete()
+        
+        # Insert the new rankings
+        for item in rankings:
+            team_code = item.get('team')      # e.g., 'UGA'
+            ranking_num = item.get('ranking')  # e.g., 1
+            
+            raw_ranking = RawRanking(
+                team=team_code,
+                ranking=ranking_num,
+                week=week_num,
+                season=year_num,
+                voter=voter
+            )
+            db.session.add(raw_ranking)
+            
+        db.session.commit()
+        return jsonify({
+            'status': 'success',
+            'message': f'Ballot successfully submitted for {voter} (Week {week_num}, Year {year_num})!'
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to submit ballot: {e}")
+        db.session.rollback()
+        return jsonify({'error': f'Database submission failed: {str(e)}'}), 500
+
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000, debug=True)
+
