@@ -193,7 +193,7 @@ export const teamsData: Team[] = [
     "color": "#0033a0",
     "alternateColor": "#d64309",
     "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/68.png",
-    "conference": "Mountain West"
+    "conference": "Pac-12"
   },
   {
     "id": "103",
@@ -336,7 +336,7 @@ export const teamsData: Team[] = [
     "color": "#004c23",
     "alternateColor": "#c8c372",
     "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/36.png",
-    "conference": "Mountain West"
+    "conference": "Pac-12"
   },
   {
     "id": "48",
@@ -453,7 +453,7 @@ export const teamsData: Team[] = [
     "color": "#b1102b",
     "alternateColor": "#13284c",
     "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/278.png",
-    "conference": "Mountain West"
+    "conference": "Pac-12"
   },
   {
     "id": "61",
@@ -1025,7 +1025,7 @@ export const teamsData: Team[] = [
     "color": "#c8102e",
     "alternateColor": "#000000",
     "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2459.png",
-    "conference": "MAC"
+    "conference": "Mountain West"
   },
   {
     "id": "77",
@@ -1259,7 +1259,7 @@ export const teamsData: Team[] = [
     "color": "#a6192e",
     "alternateColor": "#000000",
     "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/21.png",
-    "conference": "Mountain West"
+    "conference": "Pac-12"
   },
   {
     "id": "23",
@@ -1428,7 +1428,7 @@ export const teamsData: Team[] = [
     "color": "#501214",
     "alternateColor": "#6a5638",
     "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/326.png",
-    "conference": "Sun Belt"
+    "conference": "Pac-12"
   },
   {
     "id": "2641",
@@ -1597,7 +1597,7 @@ export const teamsData: Team[] = [
     "color": "#ff8200",
     "alternateColor": "#041e42",
     "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2638.png",
-    "conference": "Conference USA"
+    "conference": "Mountain West"
   },
   {
     "id": "2636",
@@ -1623,7 +1623,7 @@ export const teamsData: Team[] = [
     "color": "#0f2439",
     "alternateColor": "#ffffff",
     "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/328.png",
-    "conference": "Mountain West"
+    "conference": "Pac-12"
   },
   {
     "id": "254",
@@ -1779,6 +1779,19 @@ export const teamsData: Team[] = [
     "color": "#492f24",
     "alternateColor": "#ffc425",
     "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2751.png",
+    "conference": "Mountain West"
+  },
+  {
+    "id": "2449",
+    "displayName": "North Dakota State Bison",
+    "shortDisplayName": "ND State",
+    "name": "Bison",
+    "location": "North Dakota State",
+    "abbreviation": "NDSU",
+    "slug": "north-dakota-state-bison",
+    "color": "#00583d",
+    "alternateColor": "#FFC425",
+    "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2449.png",
     "conference": "Mountain West"
   }
 ];

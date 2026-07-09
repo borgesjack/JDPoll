@@ -3,12 +3,17 @@ import { teamsData, type Team } from '../data/teamsData';
 import { TeamLogo } from './TeamLogo';
 import { getTeamStyle, getTeamConference } from '../utils/teamUtils';
 
-export const VotePage: React.FC = () => {
+interface VotePageProps {
+  defaultWeek?: number;
+  defaultYear?: number;
+}
+
+export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear = 2026 }) => {
   // Ballot settings
   const [voterType, setVoterType] = useState<'jack' | 'devan' | 'custom'>('jack');
   const [customVoterName, setCustomVoterName] = useState('');
-  const [week, setWeek] = useState(1);
-  const [year, setYear] = useState(2026);
+  const [week, setWeek] = useState(defaultWeek);
+  const [year, setYear] = useState(defaultYear);
 
   // Ballot workspace (exactly 25 slots)
   const [rankedTeams, setRankedTeams] = useState<(Team | null)[]>(() => {
@@ -31,6 +36,147 @@ export const VotePage: React.FC = () => {
     text: string;
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [teamRecords, setTeamRecords] = useState<Record<string, string>>({});
+
+  // Fetch team records from the backend cache on mount
+  useEffect(() => {
+    const fetchRecords = async () => {
+      try {
+        const response = await fetch('/api/team-records');
+        if (response.ok) {
+          const data = await response.json();
+          setTeamRecords(data);
+        }
+      } catch (err) {
+        console.error('Error fetching team records:', err);
+      }
+    };
+    fetchRecords();
+  }, []);
+
+  const getTeamRecord = (team: Team) => {
+    const key = team.id;
+    return teamRecords[key] || teamRecords[team.abbreviation.toUpperCase()] || teamRecords[team.displayName.toLowerCase()] || "0-0";
+  };
+
+  // Database ballot tracking state
+  const [isLoadedFromDb, setIsLoadedFromDb] = useState(false);
+  const [dbBallotFingerprint, setDbBallotFingerprint] = useState<string>('');
+
+  const currentFingerprint = useMemo(() => {
+    return rankedTeams.map((t) => t ? t.abbreviation.toUpperCase() : '').join(',');
+  }, [rankedTeams]);
+
+  const hasUnsavedChanges = useMemo(() => {
+    return isLoadedFromDb ? (currentFingerprint !== dbBallotFingerprint) : rankedTeams.some(Boolean);
+  }, [isLoadedFromDb, currentFingerprint, dbBallotFingerprint, rankedTeams]);
+
+  // Fetch existing ballot from database
+  useEffect(() => {
+    let active = true;
+    const voterName = getVoterName();
+
+    const fetchBallot = async () => {
+      if (!voterName) return;
+      try {
+        const response = await fetch(`/api/ballot?voter=${encodeURIComponent(voterName)}&week=${week}&year=${year}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch ballot');
+        }
+        const data = await response.json();
+        if (!active) return;
+
+        if (data.rankings && data.rankings.length > 0) {
+          const newRankedTeams = Array(25).fill(null);
+          data.rankings.forEach((item: { team: string; ranking: number }) => {
+            const teamObj = teamsData.find(
+              (t) => t.abbreviation.toUpperCase() === item.team.toUpperCase()
+            );
+            if (teamObj && item.ranking >= 1 && item.ranking <= 25) {
+              newRankedTeams[item.ranking - 1] = teamObj;
+            }
+          });
+          setRankedTeams(newRankedTeams);
+          setIsLoadedFromDb(true);
+          
+          // Generate fingerprint from loaded data
+          const loadedFingerprint = data.rankings
+            .sort((a: any, b: any) => a.ranking - b.ranking)
+            .map((r: any) => r.team.toUpperCase())
+            .join(',');
+          setDbBallotFingerprint(loadedFingerprint);
+          showTemporaryMessage('success', `Loaded submitted ballot for ${voterName} (Week ${week}, ${year})`);
+        } else if (week > 0) {
+          // Attempt to populate from the previous week's ballot if none exists for this week
+          try {
+            const prevWeek = week - 1;
+            const prevResponse = await fetch(`/api/ballot?voter=${encodeURIComponent(voterName)}&week=${prevWeek}&year=${year}`);
+            if (prevResponse.ok) {
+              const prevData = await prevResponse.json();
+              if (!active) return;
+              
+              if (prevData.rankings && prevData.rankings.length > 0) {
+                const newRankedTeams = Array(25).fill(null);
+                prevData.rankings.forEach((item: { team: string; ranking: number }) => {
+                  const teamObj = teamsData.find(
+                    (t) => t.abbreviation.toUpperCase() === item.team.toUpperCase()
+                  );
+                  if (teamObj && item.ranking >= 1 && item.ranking <= 25) {
+                    newRankedTeams[item.ranking - 1] = teamObj;
+                  }
+                });
+                setRankedTeams(newRankedTeams);
+                setIsLoadedFromDb(false);
+                setDbBallotFingerprint('');
+                showTemporaryMessage('success', `Populated ballot with Week ${prevWeek} rankings (unsaved)`);
+                return;
+              }
+            }
+          } catch (prevErr) {
+            console.error('Error fetching previous week ballot:', prevErr);
+          }
+          
+          setRankedTeams(Array(25).fill(null));
+          setIsLoadedFromDb(false);
+          setDbBallotFingerprint('');
+        } else {
+          setRankedTeams(Array(25).fill(null));
+          setIsLoadedFromDb(false);
+          setDbBallotFingerprint('');
+        }
+      } catch (err) {
+        console.error('Error fetching ballot:', err);
+        if (active) {
+          setRankedTeams(Array(25).fill(null));
+          setIsLoadedFromDb(false);
+          setDbBallotFingerprint('');
+        }
+      }
+    };
+
+    if (voterType === 'custom') {
+      // Debounce custom voter name input typing
+      const timer = setTimeout(() => {
+        if (customVoterName.trim()) {
+          fetchBallot();
+        } else {
+          setRankedTeams(Array(25).fill(null));
+          setIsLoadedFromDb(false);
+          setDbBallotFingerprint('');
+        }
+      }, 500);
+      return () => {
+        active = false;
+        clearTimeout(timer);
+      };
+    } else {
+      fetchBallot();
+      return () => {
+        active = false;
+      };
+    }
+  }, [voterType, customVoterName, week, year]);
+
 
   // Clear messages after 6 seconds
   useEffect(() => {
@@ -84,12 +230,28 @@ export const VotePage: React.FC = () => {
     return voterType;
   };
 
-  // Pre-generate placeholder consensus ranks for teams based on their ID/hash so it's consistent
-  const getPlaceholderConsensusRank = (teamId: string) => {
-    const idNum = parseInt(teamId, 10) || 1;
-    // Map to a reasonable ranking placeholder (1 to 134)
-    const rank = (idNum % 25) + 1;
-    return `#${rank}`;
+  const [consensusRankings, setConsensusRankings] = useState<Record<string, number>>({});
+
+  // Fetch consensus rankings for the previous week (or current if preseason)
+  useEffect(() => {
+    const prevWeek = week > 0 ? week - 1 : 0;
+    const fetchConsensusRankings = async () => {
+      try {
+        const response = await fetch(`/api/consensus-rankings?week=${prevWeek}&year=${year}`);
+        if (response.ok) {
+          const data = await response.json();
+          setConsensusRankings(data);
+        }
+      } catch (err) {
+        console.error('Error fetching consensus rankings:', err);
+      }
+    };
+    fetchConsensusRankings();
+  }, [week, year]);
+
+  const getPlaceholderConsensusRank = (team: Team) => {
+    const rank = consensusRankings[team.abbreviation.toUpperCase()];
+    return rank ? `#${rank}` : '';
   };
 
   // Helper to determine conference for any team
@@ -108,15 +270,18 @@ export const VotePage: React.FC = () => {
 
       if (!matchesSearch) return false;
       if (activeConference === 'All') return true;
+      if (activeConference === 'Ranked') {
+        return !!consensusRankings[team.abbreviation.toUpperCase()];
+      }
 
       const conf = getConference(team);
       return conf === activeConference;
     });
-  }, [searchQuery, activeConference]);
+  }, [searchQuery, activeConference, consensusRankings]);
 
-  // Limit displayed search results to 35 for render speed
+  // Render all matching library teams
   const displayedLibraryTeams = useMemo(() => {
-    return filteredTeams.slice(0, 35);
+    return filteredTeams;
   }, [filteredTeams]);
 
   // Click on a library team toggles its inclusion on the ballot
@@ -230,6 +395,8 @@ export const VotePage: React.FC = () => {
       } else {
         showTemporaryMessage('success', `Ballot successfully submitted to database for ${voterName}!`);
       }
+      setIsLoadedFromDb(true);
+      setDbBallotFingerprint(currentFingerprint);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'An error occurred during submission.';
       showTemporaryMessage('error', msg);
@@ -244,7 +411,7 @@ export const VotePage: React.FC = () => {
   };
 
   // Conferences list for filtering
-  const conferences = ['All', 'SEC', 'Big Ten', 'Big 12', 'ACC', 'Pac-12', 'AAC', 'Mountain West', 'Sun Belt', 'MAC', 'Conference USA', 'Independent', 'Other'];
+  const conferences = ['All', 'Ranked', 'SEC', 'Big Ten', 'Big 12', 'ACC', 'Pac-12', 'AAC', 'Mountain West', 'Sun Belt', 'MAC', 'Conference USA', 'Independent', 'Other'];
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -320,18 +487,18 @@ export const VotePage: React.FC = () => {
           {/* Week Selection */}
           <div className="flex flex-col space-y-2">
             <label className="text-xs font-bold uppercase tracking-wider text-dark-900/60">Poll Week</label>
-            <input
-              type="number"
-              min={0}
-              max={20}
-              required
+            <select
               value={week}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10);
-                setWeek(isNaN(val) ? 0 : val);
-              }}
-              className="bg-cream-100/50 border border-dark-900/10 rounded-lg py-2 px-3 text-sm font-semibold focus:outline-none focus:border-maroon-500 focus:ring-1 focus:ring-maroon-500"
-            />
+              onChange={(e) => setWeek(parseInt(e.target.value, 10))}
+              className="bg-cream-100/50 border border-dark-900/10 rounded-lg py-2 px-3 text-sm font-semibold focus:outline-none focus:border-maroon-500 focus:ring-1 focus:ring-maroon-500 cursor-pointer w-full"
+            >
+              <option value={0}>Preseason</option>
+              {Array.from({ length: 15 }, (_, i) => i + 1).map((w) => (
+                <option key={w} value={w}>
+                  Week {w}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Year Selection */}
@@ -459,11 +626,17 @@ export const VotePage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2 shrink-0">
-                      {/* Consensus Rank placeholder */}
+                    <div className="flex items-center space-x-1.5 shrink-0">
+                      {/* Record placeholder */}
                       <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-cream-200 border border-cream-300/40 text-dark-900/50">
-                        {getPlaceholderConsensusRank(team.id)}
+                        {getTeamRecord(team)}
                       </span>
+                      {/* Consensus Rank Badge */}
+                      {getPlaceholderConsensusRank(team) && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-cream-200 border border-cream-300/40 text-dark-900/50">
+                          {getPlaceholderConsensusRank(team)}
+                        </span>
+                      )}
                       {selected && (
                         <span className="bg-maroon-500 text-cream-50 rounded-full p-0.5 shadow-sm">
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -476,21 +649,36 @@ export const VotePage: React.FC = () => {
                 );
               })
             )}
-            {filteredTeams.length > 35 && (
-              <div className="text-center py-2 text-[10px] text-dark-900/40 font-semibold bg-cream-200/20 rounded">
-                Showing top 35 results. Refine search.
-              </div>
-            )}
           </div>
         </div>
 
         {/* Right Column: Ballot Workspace Slots (8 cols) */}
         <div className="lg:col-span-8 space-y-3">
-          <div className="flex justify-between items-center mb-2 px-1">
-            <h2 className="font-display font-black text-xl text-dark-900">
-              Rankings Ballot Workspace
-            </h2>
-            <span className="text-xs font-semibold text-dark-900/40 bg-cream-200 border border-cream-300/40 px-2 py-0.5 rounded">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2 px-1">
+            <div className="flex items-center space-x-3">
+              <h2 className="font-display font-black text-xl text-dark-900">
+                Rankings Ballot Workspace
+              </h2>
+              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border transition-all ${
+                isLoadedFromDb
+                  ? hasUnsavedChanges
+                    ? 'bg-amber-50 border-amber-200 text-amber-800'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : rankedTeams.some(Boolean)
+                    ? 'bg-blue-50 border-blue-200 text-blue-800'
+                    : 'bg-dark-900/5 border-dark-900/10 text-dark-900/40'
+              }`}>
+                {isLoadedFromDb
+                  ? hasUnsavedChanges
+                    ? 'Modified (Unsaved)'
+                    : 'Saved'
+                  : rankedTeams.some(Boolean)
+                    ? 'Draft (Unsaved)'
+                    : 'New Ballot'
+                }
+              </span>
+            </div>
+            <span className="text-xs font-semibold text-dark-900/40 bg-cream-200 border border-cream-300/40 px-2 py-0.5 rounded w-max">
               Slots 1 - 25
             </span>
           </div>
@@ -589,18 +777,25 @@ export const VotePage: React.FC = () => {
                             <span className="font-semibold text-dark-900 text-sm sm:text-base truncate group-hover:text-[var(--team-primary)] transition-colors">
                               {team.displayName}
                             </span>
-                            <span className="inline-flex text-[10px] px-1.5 py-0.5 rounded font-medium bg-cream-200 border border-cream-300/50 text-dark-900/50 shrink-0 w-max">
-                              {getConference(team)}
-                            </span>
+                            <div className="flex items-center space-x-1.5 shrink-0">
+                              <span className="inline-flex text-[10px] px-1.5 py-0.5 rounded font-medium bg-cream-200 border border-cream-300/50 text-dark-900/50 w-max">
+                                {getConference(team)}
+                              </span>
+                              {getPlaceholderConsensusRank(team) && (
+                                <span className="inline-flex text-[10px] px-1.5 py-0.5 rounded font-medium bg-cream-200 border border-cream-300/50 text-dark-900/50 w-max">
+                                  {getPlaceholderConsensusRank(team)}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
 
                       {/* Right: Actions and Rank Placeholder */}
-                      <div className="flex items-center space-x-4 shrink-0">
-                        {/* Consensus Rank Placeholder */}
+                      <div className="flex items-center space-x-2.5 shrink-0">
+                        {/* Record Placeholder */}
                         <span className="hidden sm:inline-flex text-xs px-2.5 py-1 rounded bg-cream-200/60 border border-cream-300/40 font-semibold text-dark-900/55 font-mono">
-                          Consensus: {getPlaceholderConsensusRank(team.id)}
+                          Record: {getTeamRecord(team)}
                         </span>
 
                         {/* Reorder Buttons (Up/Down) */}
