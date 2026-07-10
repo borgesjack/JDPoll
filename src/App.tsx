@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { TeamLogo } from './components/TeamLogo'
 import { getTeamStyle } from './utils/teamUtils'
 import { VotePage } from './components/VotePage'
+import { LoginPage } from './components/LoginPage'
 
 interface TeamRanking {
   rank: number;
@@ -45,19 +46,77 @@ interface PollData {
   voters: Voter[];
   rankings: {
     consensus: TeamRanking[];
-    jack: TeamRanking[];
-    devan: TeamRanking[];
+    Jack: TeamRanking[];
+    Devan: TeamRanking[];
   };
 }
 
 function App() {
   const [pollData, setPollData] = useState<PollData | null>(null);
-  const [activeTab, setActiveTab] = useState<'consensus' | 'jack' | 'devan'>('consensus');
+  const [activeTab, setActiveTab] = useState<'consensus' | 'Jack' | 'Devan'>('consensus');
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'home' | 'vote'>(() => {
     return window.location.hash === '#vote' ? 'vote' : 'home';
   });
+
+  const [currentUser, setCurrentUser] = useState<{ username: string; token: string } | null>(() => {
+    const token = localStorage.getItem('jd_poll_token');
+    const username = localStorage.getItem('jd_poll_username');
+    if (token && username) {
+      return { username, token };
+    }
+    return null;
+  });
+
+  // Verify token on mount
+  useEffect(() => {
+    const token = localStorage.getItem('jd_poll_token');
+    const username = localStorage.getItem('jd_poll_username');
+    if (token && username) {
+      fetch('/api/auth/me', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      .then((res) => {
+        if (!res.ok) throw new Error();
+        return res.json();
+      })
+      .then((data) => {
+        if (data.logged_in && data.username === username) {
+          // Token is valid, keep user logged in
+        } else {
+          // Token is invalid, log out
+          handleLogout();
+        }
+      })
+      .catch(() => {
+        // network error, keep credentials locally
+      });
+    }
+  }, []);
+
+  const handleLoginSuccess = (username: string, token: string) => {
+    localStorage.setItem('jd_poll_token', token);
+    localStorage.setItem('jd_poll_username', username);
+    setCurrentUser({ username, token });
+  };
+
+  const handleLogout = () => {
+    const token = localStorage.getItem('jd_poll_token');
+    if (token) {
+      fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      }).catch(err => console.error('Logout API failed:', err));
+    }
+    localStorage.removeItem('jd_poll_token');
+    localStorage.removeItem('jd_poll_username');
+    setCurrentUser(null);
+  };
 
   // Selected week and year for historical query navigation
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
@@ -138,8 +197,8 @@ function App() {
 
   const getRankings = () => {
     switch (activeTab) {
-      case 'jack': return pollData.rankings.jack;
-      case 'devan': return pollData.rankings.devan;
+      case 'Jack': return pollData.rankings.Jack;
+      case 'Devan': return pollData.rankings.Devan;
       default: return pollData.rankings.consensus;
     }
   };
@@ -172,15 +231,43 @@ function App() {
             >
               Submit Ballot
             </a>
+            {currentUser ? (
+              <div className="flex items-center space-x-4 border-l border-dark-900/10 pl-6">
+                <span className="text-dark-900/60 font-medium">
+                  Hi, <span className="font-bold text-maroon-600 capitalize">{currentUser.username}</span>
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="bg-cream-200/60 hover:bg-cream-300/80 text-dark-900/85 py-1.5 px-3 rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer"
+                >
+                  Log Out
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-4 border-l border-dark-900/10 pl-6">
+                <a
+                  href="#vote"
+                  style={{ backgroundColor: '#800020', color: '#ffffff' }}
+                  className="bg-maroon-500 hover:bg-maroon-600 text-white py-1.5 px-4 rounded-lg text-xs font-bold transition-all shadow-sm"
+                >
+                  Log In
+                </a>
+              </div>
+            )}
           </nav>
         </div>
       </header>
 
       {currentView === 'vote' ? (
-        <VotePage 
-          defaultWeek={pollData.metadata.current_week}
-          defaultYear={pollData.metadata.current_year}
-        />
+        currentUser ? (
+          <VotePage 
+            defaultWeek={pollData.metadata.current_week}
+            defaultYear={pollData.metadata.current_year}
+            currentUser={currentUser}
+          />
+        ) : (
+          <LoginPage onLoginSuccess={handleLoginSuccess} />
+        )
       ) : (
         <>
           {/* Hero Section */}
@@ -240,8 +327,8 @@ function App() {
               Consensus
             </button>
             <button
-              onClick={() => setActiveTab('jack')}
-              className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all duration-200 cursor-pointer ${activeTab === 'jack'
+              onClick={() => setActiveTab('Jack')}
+              className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all duration-200 cursor-pointer ${activeTab === 'Jack'
                 ? 'bg-maroon-500 text-white shadow'
                 : 'text-dark-900/70 hover:text-dark-900 hover:bg-cream-300/40'
                 }`}
@@ -249,8 +336,8 @@ function App() {
               Jack's Ballot
             </button>
             <button
-              onClick={() => setActiveTab('devan')}
-              className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all duration-200 cursor-pointer ${activeTab === 'devan'
+              onClick={() => setActiveTab('Devan')}
+              className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all duration-200 cursor-pointer ${activeTab === 'Devan'
                 ? 'bg-maroon-500 text-white shadow'
                 : 'text-dark-900/70 hover:text-dark-900 hover:bg-cream-300/40'
                 }`}
@@ -315,14 +402,14 @@ function App() {
 
                       {/* Record */}
                       <td className="py-5 px-4 text-center">
-                        <span className="font-semibold font-mono text-sm text-dark-900/70">
+                        <span className="font-semibold text-sm text-dark-900/70">
                           {ranking.record}
                         </span>
                       </td>
 
                       {/* Prev Rank */}
                       <td className="py-5 px-4 text-center">
-                        <span className="font-semibold font-mono text-sm text-dark-900/70">
+                        <span className="font-semibold text-sm text-dark-900/70">
                           {ranking.previousRank}
                         </span>
                       </td>

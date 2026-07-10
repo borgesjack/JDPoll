@@ -6,12 +6,11 @@ import { getTeamStyle, getTeamConference } from '../utils/teamUtils';
 interface VotePageProps {
   defaultWeek?: number;
   defaultYear?: number;
+  currentUser: { username: string; token: string };
 }
 
-export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear = 2026 }) => {
+export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear = 2026, currentUser }) => {
   // Ballot settings
-  const [voterType, setVoterType] = useState<'jack' | 'devan' | 'custom'>('jack');
-  const [customVoterName, setCustomVoterName] = useState('');
   const [week, setWeek] = useState(defaultWeek);
   const [year, setYear] = useState(defaultYear);
 
@@ -74,12 +73,15 @@ export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear
   // Fetch existing ballot from database
   useEffect(() => {
     let active = true;
-    const voterName = getVoterName();
+    const voterName = currentUser.username;
 
     const fetchBallot = async () => {
-      if (!voterName) return;
       try {
-        const response = await fetch(`/api/ballot?voter=${encodeURIComponent(voterName)}&week=${week}&year=${year}`);
+        const response = await fetch(`/api/ballot?voter=${encodeURIComponent(voterName)}&week=${week}&year=${year}`, {
+          headers: {
+            'Authorization': `Bearer ${currentUser.token}`
+          }
+        });
         if (!response.ok) {
           throw new Error('Failed to fetch ballot');
         }
@@ -110,7 +112,11 @@ export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear
           // Attempt to populate from the previous week's ballot if none exists for this week
           try {
             const prevWeek = week - 1;
-            const prevResponse = await fetch(`/api/ballot?voter=${encodeURIComponent(voterName)}&week=${prevWeek}&year=${year}`);
+            const prevResponse = await fetch(`/api/ballot?voter=${encodeURIComponent(voterName)}&week=${prevWeek}&year=${year}`, {
+              headers: {
+                'Authorization': `Bearer ${currentUser.token}`
+              }
+            });
             if (prevResponse.ok) {
               const prevData = await prevResponse.json();
               if (!active) return;
@@ -154,28 +160,11 @@ export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear
       }
     };
 
-    if (voterType === 'custom') {
-      // Debounce custom voter name input typing
-      const timer = setTimeout(() => {
-        if (customVoterName.trim()) {
-          fetchBallot();
-        } else {
-          setRankedTeams(Array(25).fill(null));
-          setIsLoadedFromDb(false);
-          setDbBallotFingerprint('');
-        }
-      }, 500);
-      return () => {
-        active = false;
-        clearTimeout(timer);
-      };
-    } else {
-      fetchBallot();
-      return () => {
-        active = false;
-      };
-    }
-  }, [voterType, customVoterName, week, year]);
+    fetchBallot();
+    return () => {
+      active = false;
+    };
+  }, [currentUser, week, year]);
 
 
   // Clear messages after 6 seconds
@@ -224,10 +213,7 @@ export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear
 
   // Get exact voter string to submit
   const getVoterName = () => {
-    if (voterType === 'custom') {
-      return customVoterName.trim().substring(0, 10) || 'Guest';
-    }
-    return voterType;
+    return currentUser.username;
   };
 
   const [consensusRankings, setConsensusRankings] = useState<Record<string, number>>({});
@@ -380,6 +366,7 @@ export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentUser.token}`,
         },
         body: JSON.stringify(payload),
       });
@@ -411,7 +398,7 @@ export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear
   };
 
   // Conferences list for filtering
-  const conferences = ['All', 'Ranked', 'SEC', 'Big Ten', 'Big 12', 'ACC', 'Pac-12', 'AAC', 'Mountain West', 'Sun Belt', 'MAC', 'Conference USA', 'Independent', 'Other'];
+  const conferences = ['All', 'Ranked', 'SEC', 'Big Ten', 'Big 12', 'ACC', 'Pac-12', 'AAC', 'Mountain West', 'Sun Belt', 'MAC', 'Conference USA', 'Independent'];
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -452,37 +439,14 @@ export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear
       {/* Ballot Settings Panel */}
       <form onSubmit={handleSubmit} className="bg-cream-50 border border-dark-900/10 rounded-xl p-6 shadow-sm mb-8">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
-          {/* Voter Name Selection */}
-          <div className="flex flex-col space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-dark-900/60">Voter Committee</label>
-            <select
-              value={voterType}
-              onChange={(e) => setVoterType(e.target.value as 'jack' | 'devan' | 'custom')}
-              className="bg-cream-100/50 border border-dark-900/10 rounded-lg py-2 px-3 text-sm font-semibold focus:outline-none focus:border-maroon-500 focus:ring-1 focus:ring-maroon-500 cursor-pointer"
-            >
-              <option value="jack">Jack (Lead Poll Analyst)</option>
-              <option value="devan">Devan (Guest Contributor)</option>
-              <option value="custom">Custom Name...</option>
-            </select>
-          </div>
-
-          {/* Custom Voter Name input */}
-          {voterType === 'custom' ? (
-            <div className="flex flex-col space-y-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-dark-900/60">Voter Name (max 10 char)</label>
-              <input
-                type="text"
-                maxLength={10}
-                required
-                placeholder="Enter name..."
-                value={customVoterName}
-                onChange={(e) => setCustomVoterName(e.target.value)}
-                className="bg-cream-100/50 border border-dark-900/10 rounded-lg py-2 px-3 text-sm font-semibold focus:outline-none focus:border-maroon-500 focus:ring-1 focus:ring-maroon-500"
-              />
+          {/* Voter Name Display */}
+          <div className="flex flex-col space-y-2 md:col-span-2">
+            <label className="text-xs font-bold uppercase tracking-wider text-dark-900/60">Voter Committee Member</label>
+            <div className="bg-cream-100 border border-dark-900/10 rounded-lg py-2 px-3.5 text-sm font-extrabold text-maroon-700 capitalize flex items-center space-x-2.5 h-[38px] shadow-inner select-none">
+              <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse shadow-sm"></span>
+              <span>{currentUser.username} (Authenticated)</span>
             </div>
-          ) : (
-            <div className="hidden md:block"></div>
-          )}
+          </div>
 
           {/* Week Selection */}
           <div className="flex flex-col space-y-2">
@@ -574,7 +538,7 @@ export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear
           </div>
 
           {/* Conference Filter Buttons */}
-          <div className="flex flex-wrap gap-1.5 mb-4 overflow-y-auto max-h-[85px] py-1 border-b border-dark-900/10 pb-3">
+          <div className="flex flex-wrap gap-1.5 mb-4 overflow-y-auto h-[260px] min-h-[260px] py-1 border-b border-dark-900/10 pb-3">
             {conferences.map((conf) => (
               <button
                 key={conf}
@@ -592,7 +556,7 @@ export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear
           </div>
 
           {/* Scrollable list of teams */}
-          <div className="overflow-y-auto flex-1 space-y-1.5 pr-1 min-h-[300px]">
+          <div className="overflow-y-auto flex-1 space-y-1.5 pr-1 min-h-[150px]">
             {displayedLibraryTeams.length === 0 ? (
               <p className="text-center py-8 text-sm text-dark-900/40 font-semibold">No teams found matching search.</p>
             ) : (
@@ -628,12 +592,12 @@ export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear
 
                     <div className="flex items-center space-x-1.5 shrink-0">
                       {/* Record placeholder */}
-                      <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-cream-200 border border-cream-300/40 text-dark-900/50">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-cream-200 border border-cream-300/40 text-dark-900/50">
                         {getTeamRecord(team)}
                       </span>
                       {/* Consensus Rank Badge */}
                       {getPlaceholderConsensusRank(team) && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-cream-200 border border-cream-300/40 text-dark-900/50">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-cream-200 border border-cream-300/40 text-dark-900/50">
                           {getPlaceholderConsensusRank(team)}
                         </span>
                       )}
@@ -793,8 +757,8 @@ export const VotePage: React.FC<VotePageProps> = ({ defaultWeek = 1, defaultYear
 
                       {/* Right: Actions and Rank Placeholder */}
                       <div className="flex items-center space-x-2.5 shrink-0">
-                        {/* Record Placeholder */}
-                        <span className="hidden sm:inline-flex text-xs px-2.5 py-1 rounded bg-cream-200/60 border border-cream-300/40 font-semibold text-dark-900/55 font-mono">
+                         {/* Record Placeholder */}
+                         <span className="hidden sm:inline-flex text-xs px-2.5 py-1 rounded bg-cream-200/60 border border-cream-300/40 font-semibold text-dark-900/55">
                           Record: {getTeamRecord(team)}
                         </span>
 

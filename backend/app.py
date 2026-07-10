@@ -1,7 +1,7 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
 from config import Config
-from models import db, RawRanking, ConsensusRanking
+from models import db, RawRanking, ConsensusRanking, User
 import logging
 import re
 import json
@@ -51,6 +51,38 @@ db.init_app(app)
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Run database setup
+with app.app_context():
+    try:
+        from sqlalchemy import text
+        db.create_all()
+        # Migrate existing lowercase voter entries
+        db.session.execute(text("UPDATE raw_rankings SET voter = 'Jack' WHERE voter = 'jack';"))
+        db.session.execute(text("UPDATE raw_rankings SET voter = 'Devan' WHERE voter = 'devan';"))
+        db.session.commit()
+        
+        # Seed users if they don't exist
+        jack_user = User.query.filter_by(username='Jack').first()
+        if not jack_user:
+            logger.info("Seeding user 'Jack'...")
+            jack_user = User(username='Jack')
+            jack_user.set_password(os.environ.get('JACK_PASSWORD', 'Jack2026'))
+            db.session.add(jack_user)
+            
+        devan_user = User.query.filter_by(username='Devan').first()
+        if not devan_user:
+            logger.info("Seeding user 'Devan'...")
+            devan_user = User(username='Devan')
+            devan_user.set_password(os.environ.get('DEVAN_PASSWORD', 'Devan2026'))
+            db.session.add(devan_user)
+            
+        db.session.commit()
+        logger.info("Database initialized and seeded successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        db.session.rollback()
+
 
 def load_teams():
     """Parse src/data/teamsData.ts to load team metadata."""
@@ -164,7 +196,7 @@ def get_empty_fallback(season=2026, week=0):
         },
         "voters": [
             {
-                "slug": "jack",
+                "slug": "Jack",
                 "name": "Jack",
                 "role": "Lead Poll Analyst",
                 "description": "Founder of the JDPoll. Obsessed with SEC football and advanced analytics. Believes defense wins championships but speed wins games.",
@@ -172,7 +204,7 @@ def get_empty_fallback(season=2026, week=0):
                 "top_picks": []
             },
             {
-                "slug": "devan",
+                "slug": "Devan",
                 "name": "Devan",
                 "role": "Guest Contributor",
                 "description": "A long-time college football enthusiast who brings a West Coast bias and Big Ten appreciation to the committee.",
@@ -182,8 +214,8 @@ def get_empty_fallback(season=2026, week=0):
         ],
         "rankings": {
             "consensus": [],
-            "jack": [],
-            "devan": []
+            "Jack": [],
+            "Devan": []
         }
     }
 
@@ -255,7 +287,7 @@ def get_poll_data():
         # 1. Query rankings for the previous week (W - 1)
         prev_week = target_week - 1 if target_week > 0 else 0
         prev_consensus_map = {}
-        prev_raw_map = {'jack': {}, 'devan': {}}
+        prev_raw_map = {'Jack': {}, 'Devan': {}}
         
         if target_week > 0:
             try:
@@ -270,7 +302,7 @@ def get_poll_data():
                     RawRanking.week == prev_week
                 ).all()
                 for r in prev_raw_query:
-                    v = r.voter.lower()
+                    v = r.voter
                     if v in prev_raw_map:
                         prev_raw_map[v][r.team.upper()] = r.ranking
             except Exception as db_err:
@@ -318,13 +350,13 @@ def get_poll_data():
                 
         db_rankings = {
             'consensus': consensus_list,
-            'jack': [],
-            'devan': []
+            'Jack': [],
+            'Devan': []
         }
         
         # 3. Map individual voter rankings
         for r in raw_query:
-            voter_slug = r.voter.lower()
+            voter_slug = r.voter
             if voter_slug in db_rankings:
                 team_info = TEAMS_BY_CODE.get(r.team.upper())
                 if team_info:
@@ -366,20 +398,20 @@ def get_poll_data():
         # Populate voters top picks
         voters_list = [
             {
-                "slug": "jack",
+                "slug": "Jack",
                 "name": "Jack",
                 "role": "Lead Poll Analyst",
                 "description": "Founder of the JDPoll. Obsessed with SEC football and advanced analytics. Believes defense wins championships but speed wins games.",
                 "avatar_initials": "JD",
-                "top_picks": [item['team'] for item in db_rankings['jack'][:3]]
+                "top_picks": [item['team'] for item in db_rankings['Jack'][:3]]
             },
             {
-                "slug": "devan",
+                "slug": "Devan",
                 "name": "Devan",
                 "role": "Guest Contributor",
                 "description": "A long-time college football enthusiast who brings a West Coast bias and Big Ten appreciation to the committee.",
                 "avatar_initials": "V2",
-                "top_picks": [item['team'] for item in db_rankings['devan'][:3]]
+                "top_picks": [item['team'] for item in db_rankings['Devan'][:3]]
             }
         ]
         
@@ -472,9 +504,9 @@ def update_consensus_rankings(week_num, year_num):
             RawRanking.season == year_num
         ).distinct().all()
         
-        voter_names = {v[0].lower() for v in voters}
+        voter_names = {v[0] for v in voters}
         
-        if 'jack' in voter_names and 'devan' in voter_names:
+        if 'Jack' in voter_names and 'Devan' in voter_names:
             # Get all raw rankings for this week and season
             all_rankings = db.session.query(RawRanking).filter(
                 RawRanking.week == week_num,
@@ -482,9 +514,9 @@ def update_consensus_rankings(week_num, year_num):
             ).all()
             
             # Map individual voter ratings (26 - rank)
-            voter_ratings = {'jack': {}, 'devan': {}}
+            voter_ratings = {'Jack': {}, 'Devan': {}}
             for r in all_rankings:
-                voter_name = r.voter.lower()
+                voter_name = r.voter
                 if voter_name in voter_ratings:
                     voter_ratings[voter_name][r.team.upper()] = 26 - r.ranking
                     
@@ -496,8 +528,8 @@ def update_consensus_rankings(week_num, year_num):
             
             teams_to_sort = []
             for team_code in teams_set:
-                r_jack = voter_ratings['jack'].get(team_code, 0)
-                r_devan = voter_ratings['devan'].get(team_code, 0)
+                r_jack = voter_ratings['Jack'].get(team_code, 0)
+                r_devan = voter_ratings['Devan'].get(team_code, 0)
                 total_pts = r_jack + r_devan
                 max_rate = max(r_jack, r_devan)
                 
@@ -568,9 +600,68 @@ def update_consensus_rankings(week_num, year_num):
         db.session.rollback()
         raise e
 
+import secrets
+
+def get_current_user():
+    """Helper to verify Authorization header and return User object if valid."""
+    from flask import request
+    auth_header = request.headers.get('Authorization')
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+        user = User.query.filter_by(session_token=token).first()
+        return user
+    return None
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    from flask import request
+    data = request.json or {}
+    username = data.get('username')
+    password = data.get('password')
+    
+    if not username or not password:
+        return jsonify({'error': 'Username and password are required.'}), 400
+        
+    user = User.query.filter(User.username.ilike(username)).first()
+    if not user or not user.check_password(password):
+        return jsonify({'error': 'Invalid username or password.'}), 401
+        
+    token = secrets.token_hex(32)
+    user.session_token = token
+    db.session.commit()
+    
+    return jsonify({
+        'token': token,
+        'username': user.username
+    })
+
+@app.route('/api/auth/logout', methods=['POST'])
+def auth_logout():
+    user = get_current_user()
+    if user:
+        user.session_token = None
+        db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/api/auth/me', methods=['GET'])
+def auth_me():
+    user = get_current_user()
+    if user:
+        return jsonify({
+            'logged_in': True,
+            'username': user.username
+        })
+    return jsonify({'logged_in': False})
+
 @app.route('/api/submit-ballot', methods=['POST'])
 def submit_ballot():
     from flask import request
+    
+    # Enforce authentication
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Unauthorized. Please log in.'}), 401
+        
     data = request.json or {}
     
     voter = data.get('voter')
@@ -580,6 +671,10 @@ def submit_ballot():
     
     if not voter or week is None or year is None:
         return jsonify({'error': 'Missing voter, week, or year'}), 400
+        
+    # Enforce only voting for own username
+    if current_user.username.lower() != voter.lower():
+        return jsonify({'error': f'Forbidden. You are logged in as {current_user.username} and cannot submit a ballot for {voter}.'}), 403
         
     if not rankings or len(rankings) != 25:
         return jsonify({'error': 'A ballot must contain exactly 25 teams'}), 400
@@ -593,14 +688,14 @@ def submit_ballot():
             # No database configured, return mock/simulated response
             return jsonify({
                 'status': 'simulated',
-                'message': f'Ballot received for {voter} (Week {week_num}, Year {year_num}). Local simulation mode: Database not configured.'
+                'message': f'Ballot received for {current_user.username} (Week {week_num}, Year {year_num}). Local simulation mode: Database not configured.'
             })
             
         from models import RawRanking
         
         # Delete existing rankings for this voter, week, and season (year)
         db.session.query(RawRanking).filter(
-            RawRanking.voter == voter,
+            RawRanking.voter == current_user.username,
             RawRanking.week == week_num,
             RawRanking.season == year_num
         ).delete()
@@ -615,7 +710,7 @@ def submit_ballot():
                 ranking=ranking_num,
                 week=week_num,
                 season=year_num,
-                voter=voter
+                voter=current_user.username
             )
             db.session.add(raw_ranking)
             
@@ -626,7 +721,7 @@ def submit_ballot():
         
         return jsonify({
             'status': 'success',
-            'message': f'Ballot successfully submitted for {voter} (Week {week_num}, Year {year_num})!'
+            'message': f'Ballot successfully submitted for {current_user.username} (Week {week_num}, Year {year_num})!'
         })
         
     except Exception as e:
